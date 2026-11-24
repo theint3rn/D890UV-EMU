@@ -1,0 +1,83 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>D890UV Emulator</title><style>
+:root{--bg:#1b1d21;--body:#2a2d33;--key:#3a3e46;--keyhi:#4b505a;--txt:#e8e8e8;--dim:#9aa0a8;--acc:#e0a030}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font:14px system-ui,sans-serif;display:flex;gap:24px;
+justify-content:center;padding:16px;flex-wrap:wrap}
+.radio{background:var(--body);border-radius:18px;padding:18px;width:min(100%,420px);box-shadow:0 4px 24px #0008}
+#lcd{width:100%;height:auto;image-rendering:pixelated;background:#000;border:6px solid #111;border-radius:6px;display:block}
+.row{display:grid;gap:8px;margin-top:10px}.r3{grid-template-columns:repeat(3,1fr)}.r4{grid-template-columns:repeat(4,1fr)}
+button{background:var(--key);color:var(--txt);border:0;border-radius:10px;padding:12px 4px;font-size:16px;cursor:pointer;user-select:none;touch-action:none}
+button:active,button.down{background:var(--acc);color:#000}button small{display:block;font-size:10px;color:var(--dim)}
+button.down small,button:active small{color:#222}
+.side{background:#2a2d33;writing-mode:vertical-rl;padding:18px 6px;border-radius:8px 0 0 8px}
+.side.ptt{padding:40px 6px;background:#38404c}.wrap{display:flex;align-items:flex-start;gap:0}.sidecol{display:flex;flex-direction:column;gap:8px;margin-top:150px}
+.knobs{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin:-6px 0 10px}.knob{background:#0c0c0c;color:#777;font-size:10px;border-radius:10px;padding:4px;display:flex;align-items:center;gap:4px}.knob button{padding:6px 10px;font-size:15px;border-radius:8px}.knob b{font-weight:600}.side.top{writing-mode:horizontal-tb;padding:6px 10px;border-radius:8px}#pwr.off{background:#5a1d1d}.ant{width:14px;height:34px;background:#0c0c0c;border-radius:4px;margin-right:auto}.brand{text-align:center;font-weight:700;font-style:italic;color:#ddd;margin-bottom:6px}
+.radio{background:#1e2733}button{background:#111;color:#eee}
+.nav{display:grid;grid-template-columns:1fr 1.3fr 1fr;grid-template-rows:auto auto;gap:8px;margin-top:12px;align-items:center}
+.nav .soft{grid-row:1}.nav .soft.red{grid-column:3;color:#e33}.nav .pk{grid-row:2;color:#e33;font-weight:700}.nav .pk+.pk{grid-column:3}
+.ring{grid-column:2;grid-row:1/3;display:flex;flex-direction:column;border-radius:50%;overflow:hidden;aspect-ratio:1;background:#111}
+.ring button{flex:1;border-radius:0;background:#111}.ring .up{border-bottom:1px solid #333}
+.pad button{font-size:20px;font-weight:700}.panel{width:min(100%,380px)}h3{margin:6px 0;font-size:13px;color:var(--dim);font-weight:600}
+#texts{background:#111;border-radius:8px;padding:8px;font:12px ui-monospace,monospace;height:300px;overflow:auto;white-space:pre-wrap}
+#stat{font:12px ui-monospace,monospace;color:var(--dim);margin-top:8px}
+input{background:#111;color:var(--txt);border:1px solid #444;border-radius:6px;padding:8px;width:100%;font:13px ui-monospace,monospace}
+pre{background:#111;border-radius:8px;padding:8px;font:12px ui-monospace,monospace;max-height:160px;overflow:auto;white-space:pre-wrap;margin:6px 0 0}
+</style></head><body>
+<div class="wrap"><div class="sidecol">
+ <button class="side ptt" data-pin="A10" title="PA10, Space">PTT<small>Space</small></button>
+ <button class="side" data-pin="E2" title="PE2, key code 21">PF1<small>PE2</small></button>
+ <button class="side" data-pin="A14" title="PA14, key code 22">PF2<small>PA14</small></button>
+</div>
+<div class="radio"><div class="knobs"><span class="ant" title="antenna"></span><span class="pf3"><button class="side top" data-pin="A8" title="PA8, key code 23">PF3<small>PA8</small></button></span>
+<span class="knob ch" title="Channel knob: click left/right half, or scroll the wheel over it"><button id="kl">&#10226;</button><b>CH</b><button id="kr">&#10227;</button></span>
+<span class="knob vol" title="Volume/power: turning volume is analog (the MCU does not see it); this switches power"><button id="pwr">ON</button><b>VOL/PWR</b></span></div>
+<div class="brand">AnyTone</div><img id="lcd" alt="LCD">
+<div class="nav">
+ <button data-k="13" class="soft">&#9644;<small>Menu &middot; Enter</small></button>
+ <div class="ring"><button data-k="15" class="up">&#9650;<small>Up</small></button><button data-k="16" class="dn">&#9660;<small>Down</small></button></div>
+ <button data-k="14" class="soft red">&#9644;&#9644;<small>Exit &middot; Esc</small></button>
+ <button data-k="19" class="pk">P1<small>F1</small></button><button data-k="20" class="pk">P2<small>F2</small></button></div>
+<div class="row r3 pad">
+ <button data-k="2">1<small>&#8226;&lt;</small></button><button data-k="3">2<small>ABC</small></button><button data-k="4">3<small>DEF</small></button>
+ <button data-k="5">4<small>GHI</small></button><button data-k="6">5<small>JKL</small></button><button data-k="7">6<small>MNO</small></button>
+ <button data-k="8">7<small>PQRS</small></button><button data-k="9">8<small>TUV</small></button><button data-k="10">9<small>WXYZ</small></button>
+ <button data-k="11">*<small>&#9251;</small></button><button data-k="1">0<small>+</small></button><button data-k="12">#<small>&#8679;</small></button></div>
+<div id="stat">connecting...</div></div></div>
+<div class="panel"><h3>Strings drawn by the firmware (newest last)</h3><div id="texts"></div>
+<div class="row r3"><button id="pause">Pause</button><button id="reset">Reset</button><button id="save">Save shot</button></div>
+<h3 style="margin-top:14px">Renode monitor command</h3><input id="cmd" placeholder="e.g. gps Fix false   |   analog Battery 6.0   |   rtc SetTime &quot;2026-05-01 10:00:00&quot;">
+<pre id="out"></pre></div>
+<script>
+const post=(u,b)=>fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json());
+function bind(el,down,up){const d=e=>{e.preventDefault();el.classList.add('down');down()},u=e=>{if(!el.classList.contains('down'))return;el.classList.remove('down');up()};
+ el.addEventListener('pointerdown',d);el.addEventListener('pointerup',u);el.addEventListener('pointerleave',u);el.addEventListener('pointercancel',u)}
+document.querySelectorAll('[data-k]').forEach(b=>{const k=+b.dataset.k;bind(b,()=>post('/key',{code:k,down:true}),()=>post('/key',{code:k,down:false}))});
+document.querySelectorAll('[data-pin]').forEach(b=>{const p=b.dataset.pin;bind(b,()=>post('/pin',{pin:p,down:true}),()=>post('/pin',{pin:p,down:false}))});
+const KM={Enter:13,Escape:14,Backspace:14,ArrowUp:15,ArrowDown:16,F1:19,F2:20,'*':11,'#':12};for(let i=0;i<10;i++)KM[''+i]=i+1;
+const held=new Set();
+addEventListener('keydown',e=>{if(e.key!=' '||e.target.tagName=='INPUT')return;e.preventDefault();if(held.has(' '))return;held.add(' ');
+ document.querySelector('.ptt').classList.add('down');post('/pin',{pin:'A10',down:true})});
+addEventListener('keyup',e=>{if(e.key!=' '||!held.has(' '))return;held.delete(' ');document.querySelector('.ptt').classList.remove('down');post('/pin',{pin:'A10',down:false})});
+addEventListener('keydown',e=>{if(e.target.tagName=='INPUT')return;const k=KM[e.key];if(k===undefined)return;e.preventDefault();if(held.has(e.key))return;held.add(e.key);
+ const b=document.querySelector('[data-k="'+k+'"]');b&&b.classList.add('down');post('/key',{code:k,down:true})});
+addEventListener('keyup',e=>{const k=KM[e.key];if(k===undefined||!held.has(e.key))return;held.delete(e.key);
+ const b=document.querySelector('[data-k="'+k+'"]');b&&b.classList.remove('down');post('/key',{code:k,down:false})});
+const lcd=document.getElementById('lcd');let last=-1;
+async function tick(){try{const s=await fetch('/state').then(r=>r.json());
+ document.getElementById('stat').textContent=`virtual ${s.vtime.toFixed(1)} s  speed ${s.speed.toFixed(2)}x real-time  ${s.running?'running':'PAUSED'}`;
+ document.getElementById('pause').textContent=s.running?'Pause':'Run';
+ pwrOff=s.power!='on';const pb=document.getElementById('pwr');pb.textContent=s.power=='on'?'ON':(s.power=='off'?'OFF':'...');pb.classList.toggle('off',pwrOff);
+ const t=document.getElementById('texts'),nt=s.texts.join('\n');if(t.textContent!=nt){t.textContent=nt;t.scrollTop=1e9}
+ if(s.frame!=last){last=s.frame;const b=await fetch('/lcd.png?f='+s.frame).then(r=>r.blob());const u=URL.createObjectURL(b);lcd.onload=()=>URL.revokeObjectURL(u);lcd.src=u}
+}catch(e){document.getElementById('stat').textContent='emulator not reachable'}setTimeout(tick,120)}
+tick();
+document.getElementById('kl').onclick=()=>post('/knob',{steps:-1});document.getElementById('kr').onclick=()=>post('/knob',{steps:1});
+document.querySelector('.knob.ch').addEventListener('wheel',e=>{e.preventDefault();post('/knob',{steps:e.deltaY<0?1:-1})},{passive:false});
+document.getElementById('pwr').onclick=()=>post('/power',{on:pwrOff});
+let pwrOff=false;
+document.getElementById('pause').onclick=()=>post('/pause',{});
+document.getElementById('reset').onclick=()=>{if(confirm('Reset the emulated radio?'))post('/cmd',{cmd:'machine Reset'})};
+document.getElementById('save').onclick=()=>post('/save',{}).then(r=>document.getElementById('out').textContent='saved '+r.path);
+document.getElementById('cmd').addEventListener('keydown',e=>{if(e.key!='Enter')return;const c=e.target.value;
+ post('/cmd',{cmd:c}).then(r=>document.getElementById('out').textContent='> '+c+'\n'+(r.out||''))});
+</script></body></html>

@@ -1,0 +1,354 @@
+// STM32U575 (2 MB flash, 768 KB SRAM) for Renode 1.17, built for the D890UV firmware.
+// Stock Renode models where the IP matches (GPIO, USART, TIM, SPI, flash controller),
+// Python models in emu/models/ for U5-specific blocks. Unmodelled ranges are tagged/logged.
+
+nvic: IRQControllers.NVIC @ sysbus 0xE000E000
+    priorityMask: 0xF0
+    // Firmware runs SysTick from HCLK/8 (FUN_08062654, HCLK 120 MHz from 12 MHz HSE); Renode ignores CLKSOURCE.
+    systickFrequency: 15000000
+    IRQ -> cpu@0
+
+cpu: CPU.CortexM @ sysbus
+    cpuType: "cortex-m33"
+    nvic: nvic
+
+// Flash also appears at 0x0 (boot alias): reset (incl. firmware SYSRESETREQ) starts at the boot stub.
+flash: Memory.MappedMemory @ { sysbus 0x08000000; sysbus 0x0 }
+    size: 0x200000
+
+sram: Memory.MappedMemory @ sysbus 0x20000000
+    size: 0xC0000
+
+sram4: Memory.MappedMemory @ sysbus 0x28000000
+    size: 0x4000
+
+bkpsram: Memory.MappedMemory @ sysbus 0x40036400
+    size: 0x800
+
+// U5 FLASH controller (2 banks). Not Renode's STM32WBA model: it ignores the bank bit (BKER).
+flashController: Python.PythonPeripheral @ sysbus 0x40022000
+    size: 0x400
+    initable: true
+    filename: "models/flash_u5.py"
+
+// ---- clocks / power / cache (Python models) ----
+rcc: Python.PythonPeripheral @ sysbus 0x46020C00
+    size: 0x400
+    initable: true
+    filename: "models/rcc.py"
+
+pwr: Python.PythonPeripheral @ sysbus 0x46020800
+    size: 0x400
+    initable: true
+    filename: "models/pwr.py"
+
+icache: Python.PythonPeripheral @ sysbus 0x40030400
+    size: 0x400
+    initable: true
+    filename: "models/icache.py"
+
+dcache1: Python.PythonPeripheral @ sysbus 0x40031400
+    size: 0x400
+    initable: true
+    filename: "models/icache.py"
+
+rtc: Miscellaneous.D890Rtc @ sysbus <0x46007800, +0x400>
+    IRQ -> nvic@2
+
+adc1: Python.PythonPeripheral @ sysbus 0x42028000
+    size: 0x400
+    initable: true
+    filename: "models/adc.py"
+
+adc4: Python.PythonPeripheral @ sysbus 0x46021000
+    size: 0x400
+    initable: true
+    filename: "models/adc.py"
+
+dwt: Python.PythonPeripheral @ sysbus 0xE0001000
+    size: 0x1000
+    initable: true
+    filename: "models/dwt.py"
+
+dbgmcu: Python.PythonPeripheral @ sysbus 0xE0044000
+    size: 0x100
+    initable: false
+    script: "request.Value = 0x20016482 if (request.IsRead and request.Offset == 0) else 0"
+
+devinfo: Python.PythonPeripheral @ sysbus 0x0BFA0700
+    size: 0x100
+    initable: false
+    // UID words at +0x00..+0x08, FLASHSIZE (KB) at +0xA0
+    // TS_CAL1 (+0x10) = 0x1400, TS_CAL2 (+0x42) = 0x1900 (temperature sensor, FUN_080392a8)
+    script: "request.Value = ({0xA0: 0x0800, 0x10: 0x1400, 0x40: 0x19000000, 0x42: 0x1900}.get(request.Offset, 0x00D89055 + request.Offset) if request.Offset in (0, 4, 8, 0xA0, 0x10, 0x40, 0x42) else 0) if request.IsRead else 0"
+
+// ---- plain storage for blocks the firmware only configures ----
+exti: Python.PythonPeripheral @ sysbus 0x46022000
+    size: 0x400
+    initable: true
+    filename: "models/store.py"
+
+gpdma1: Python.PythonPeripheral @ sysbus 0x40020000
+    size: 0x1000
+    initable: true
+    filename: "models/store.py"
+
+syscfg: Python.PythonPeripheral @ sysbus 0x46000400
+    size: 0x400
+    initable: true
+    filename: "models/store.py"
+
+crs: Python.PythonPeripheral @ sysbus 0x40006000
+    size: 0x400
+    initable: true
+    filename: "models/store.py"
+
+tamp: Python.PythonPeripheral @ sysbus 0x46007C00
+    size: 0x400
+    initable: true
+    filename: "models/tamp.py"
+
+lpgpio1: Python.PythonPeripheral @ sysbus 0x46020000
+    size: 0x400
+    initable: true
+    filename: "models/store.py"
+
+// DAC1: register file + capture (models/Dac.cs): ch1 PA4 = APC level during TX, ch2 PA5 = UHF RX tune (stock)
+dac1: Miscellaneous.D890Dac @ sysbus <0x46021800, +0x400>
+
+crc: Python.PythonPeripheral @ sysbus 0x40023000
+    size: 0x400
+    initable: true
+    filename: "models/store.py"
+
+lptim1: Python.PythonPeripheral @ sysbus 0x46004400
+    size: 0x400
+    initable: true
+    filename: "models/store.py"
+
+wwdg: Python.PythonPeripheral @ sysbus 0x40002C00
+    size: 0x400
+    initable: true
+    filename: "models/store.py"
+
+usbOtg: Python.PythonPeripheral @ sysbus 0x42040000
+    size: 0x40000
+    initable: true
+    filename: "models/usb_otg.py"
+
+// ---- GPIO (same register map as L5/F4) ----
+gpioPortA: GPIOPort.STM32_GPIOPort @ sysbus <0x42020000, +0x400>
+    modeResetValue: 0xABFFFFFF
+    outputSpeedResetValue: 0x0C000000
+    pullUpPullDownResetValue: 0x64000000
+    numberOfAFs: 16
+
+gpioPortB: GPIOPort.STM32_GPIOPort @ sysbus <0x42020400, +0x400>
+    modeResetValue: 0xFFFFFEBF
+    pullUpPullDownResetValue: 0x00000100
+    numberOfAFs: 16
+
+gpioPortC: GPIOPort.STM32_GPIOPort @ sysbus <0x42020800, +0x400>
+    modeResetValue: 0xFFFFFFFF
+    numberOfAFs: 16
+
+gpioPortD: GPIOPort.STM32_GPIOPort @ sysbus <0x42020C00, +0x400>
+    modeResetValue: 0xFFFFFFFF
+    numberOfAFs: 16
+
+gpioPortE: GPIOPort.STM32_GPIOPort @ sysbus <0x42021000, +0x400>
+    modeResetValue: 0xFFFFFFFF
+    numberOfAFs: 16
+
+gpioPortF: GPIOPort.STM32_GPIOPort @ sysbus <0x42021400, +0x400>
+    modeResetValue: 0xFFFFFFFF
+    numberOfAFs: 16
+
+gpioPortG: GPIOPort.STM32_GPIOPort @ sysbus <0x42021800, +0x400>
+    modeResetValue: 0xFFFFFFFF
+    numberOfAFs: 16
+
+gpioPortH: GPIOPort.STM32_GPIOPort @ sysbus <0x42021C00, +0x400>
+    modeResetValue: 0xFFFFFFFF
+    numberOfAFs: 16
+
+gpioPortI: GPIOPort.STM32_GPIOPort @ sysbus <0x42022000, +0x400>
+    modeResetValue: 0xFFFFFFFF
+    numberOfAFs: 16
+
+// ---- serial ----
+usart1: UART.STM32F7_USART @ sysbus 0x40013800
+    frequency: 160000000
+    IRQ -> nvic@61
+
+usart2: UART.STM32F7_USART @ sysbus 0x40004400
+    frequency: 160000000
+    IRQ -> nvic@62
+
+usart3: UART.STM32F7_USART @ sysbus 0x40004800
+    frequency: 160000000
+    IRQ -> nvic@63
+
+uart4: UART.STM32F7_USART @ sysbus 0x40004C00
+    frequency: 160000000
+    IRQ -> nvic@64
+
+uart5: UART.STM32F7_USART @ sysbus 0x40005000
+    frequency: 160000000
+    IRQ -> nvic@65
+
+lpuart1: UART.STM32F7_USART @ sysbus 0x46002400
+    frequency: 160000000
+    IRQ -> nvic@66
+
+spi1: Python.PythonPeripheral @ sysbus 0x40013000
+    size: 0x400
+    initable: true
+    // Renode STM32SPI (H7 series) hangs on load in 1.17; firmware barely uses SPI (GPIO bit-bang)
+    filename: "models/spi.py"
+
+// SPI2 = SCT3288 DMR baseband link (CS PB12, data ready PD11 + PD7), behavioural model
+spi2: Miscellaneous.D890Baseband @ sysbus <0x40003800, +0x400>
+
+spi3: Python.PythonPeripheral @ sysbus 0x46002000
+    size: 0x400
+    initable: true
+    // Renode STM32SPI (H7 series) hangs on load in 1.17; firmware barely uses SPI (GPIO bit-bang)
+    filename: "models/spi.py"
+
+// ---- timers (kernel clock 120 MHz: HCLK 120 MHz, APB1/APB2 /1, FUN_08062654 / cfw clock.c) ----
+timer1: Timers.STM32_Timer @ sysbus 0x40012C00
+    BreakInterrupt -> nvic@41
+    UpdateInterrupt -> nvic@42
+    [TriggerInterrupt, CommutationInterrupt] -> nvic@[43, 43]
+    CaptureCompareInterrupt -> nvic@44
+    frequency: 120000000
+    initialLimit: 0xFFFF
+
+timer2: Timers.STM32_Timer @ sysbus 0x40000000
+    -> nvic@45
+    frequency: 120000000
+    initialLimit: 0xFFFFFFFF
+
+timer3: Timers.STM32_Timer @ sysbus 0x40000400
+    -> nvic@46
+    frequency: 120000000
+    initialLimit: 0xFFFFFFFF
+
+// TIM4 = MCU TX audio PWM (PB9 = TIM4_CH4, stock + cfw): register file + capture (models/Pwm.cs); no IRQ use
+pwm: Miscellaneous.D890Pwm @ sysbus <0x40000800, +0x400>
+
+timer5: Timers.STM32_Timer @ sysbus 0x40000C00
+    -> nvic@48
+    frequency: 120000000
+    initialLimit: 0xFFFFFFFF
+
+timer6: Timers.STM32_Timer @ sysbus 0x40001000
+    -> nvic@49
+    frequency: 120000000
+    initialLimit: 0xFFFF
+
+timer7: Timers.STM32_Timer @ sysbus 0x40001400
+    -> nvic@50
+    frequency: 120000000
+    initialLimit: 0xFFFF
+
+timer8: Timers.STM32_Timer @ sysbus 0x40013400
+    BreakInterrupt -> nvic@51
+    UpdateInterrupt -> nvic@52
+    [TriggerInterrupt, CommutationInterrupt] -> nvic@[53, 53]
+    CaptureCompareInterrupt -> nvic@54
+    frequency: 120000000
+    initialLimit: 0xFFFF
+
+timer15: Timers.STM32_Timer @ sysbus 0x40014000
+    -> nvic@69
+    frequency: 120000000
+    initialLimit: 0xFFFF
+
+timer16: Timers.STM32_Timer @ sysbus 0x40014400
+    -> nvic@70
+    frequency: 120000000
+    initialLimit: 0xFFFF
+
+timer17: Timers.STM32_Timer @ sysbus 0x40014800
+    -> nvic@71
+    frequency: 120000000
+    initialLimit: 0xFFFF
+
+iwdg: Timers.STM32_IndependentWatchdog @ sysbus 0x40003000
+    frequency: 32000
+
+// ---- board: external SPI-NAND (Kioxia 0x98/0xED), bit-banged on GPIO ----
+// CS# PC5, SCK PE15, MOSI/IO0 PB10, MISO/IO1 PB8. Contents from emu/build_extflash.py.
+nand: Miscellaneous.D890SpiNand @ sysbus <0x5FFF0000, +0x10>
+    pagesFile: "images/extflash.pages"
+    IO1 -> gpioPortB@8
+    IO0 -> gpioPortB@10
+
+gpioPortC:
+    5 -> nand@0
+
+gpioPortE:
+    15 -> nand@1
+
+gpioPortB:
+    10 -> nand@2
+    6 -> i2c@0
+    7 -> i2c@1
+
+// ---- bit-banged I2C: SDA PB6, SCL PB7 (LIS2DW12 accelerometer 0x19, volume potentiometer 0x2E; models/I2cBus.cs) ----
+i2c: Miscellaneous.D890I2cBus @ sysbus <0x5FFF0440, +0x10>
+
+// ---- board: power switch + active-low keys/detect lines (idle levels, re-driven every 1 ms) ----
+board: Miscellaneous.D890BoardInputs @ sysbus <0x5FFF0100, +0x10>
+    levels: "A0=1,A8=1,A10=1,A14=1,E2=1"
+
+// ---- board: ADC1 scan values written into the DMA buffer (battery, temperature) ----
+analog: Miscellaneous.D890Analog @ sysbus <0x5FFF0400, +0x10>
+
+// ---- board: GPS receiver, NMEA into USART2 once per virtual second ----
+gps: Miscellaneous.D890Gps @ sysbus <0x5FFF0410, +0x10>
+
+// ---- board: JieLi Bluetooth module on UART4 (A5 5A frames, answers the "D890" hello) ----
+bt: Miscellaneous.D890Bluetooth @ sysbus <0x5FFF0420, +0x10>
+
+// ---- emulator-only: symbol FIFO for the custom firmware's MCU-DSP receive path (cfw make EMU=1) ----
+syms: Miscellaneous.D890SymbolSource @ sysbus <0x5FFF0500, +0x20>
+
+// ---- emulator-only: copies a firmware PCM ring (cfw g_emu_pcm) to a file (run.py attaches it by ELF symbol) ----
+pcm: Miscellaneous.D890PcmTap @ sysbus <0x5FFF0600, +0x10>
+
+// ---- board: channel knob = quadrature encoder PC8/PC9, raises EXTI8/EXTI9 (IRQ 19/20) itself ----
+knob: Miscellaneous.D890Knob @ sysbus <0x5FFF0430, +0x10>
+    ExtiA -> nvic@19
+    ExtiB -> nvic@20
+
+// ---- board: front panel = parallel TFT (PE7..14 data, PD15 WR, PD14 CS, PD12 D/C) + key matrix ----
+lcd: Miscellaneous.D890LcdKeypad @ sysbus <0x5FFF0200, +0x10>
+    width: 128
+    height: 160
+    Col0 -> gpioPortC@4
+    Col1 -> gpioPortB@1
+    Col2 -> gpioPortB@2
+
+gpioPortE:
+    [7-14] -> lcd@[0-7]
+
+gpioPortD:
+    15 -> lcd@8
+    14 -> lcd@9
+    12 -> lcd@10
+
+// ---- board: two RF transceivers on a shared 3-wire bus (SCK PB3, SDA PB4), CS# PB5 / PD3 ----
+rf0: Miscellaneous.D890RfTransceiver @ sysbus <0x5FFF0300, +0x10>
+    Sda -> gpioPortB@4
+rf1: Miscellaneous.D890RfTransceiver @ sysbus <0x5FFF0310, +0x10>
+
+gpioPortB:
+    5 -> rf0@0
+    3 -> rf0@1 | rf1@1
+    4 -> rf0@2 | rf1@2
+
+gpioPortD:
+    3 -> rf1@0

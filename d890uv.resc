@@ -1,0 +1,7 @@
+:name: D890UV
+:description: AnyTone D890UV main MCU (STM32U575). For interactive Renode use; emu/run.py writes
+:description: out/stm32u575.abs.repl (absolute model paths) on every run.
+
+mach create "d890uv"
+machine LoadPlatformDescription $ORIGIN/out/stm32u575.abs.repl
+cpu VectorTableOffset 0x0800C000
