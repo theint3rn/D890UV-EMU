@@ -5,7 +5,10 @@
 //        (XL = upright). Monitor: `i2c Fall`, `i2c Upright`, `i2c Orientation`.
 //   0x2E (0x5C) speaker volume potentiometer: stock FUN_0806536c writes [0x00, value] (value 0..0x7F from table
 //        0x0815153E[Vol Level][knob step]). Monitor: `i2c Pot` (last value, -1 = never written), `i2c PotLog`.
-//   0x35 (0x6A/0x6B): seen in the stock code, not modelled (NACK).
+//   0x35 (0x6A/0x6B) AM/FM broadcast receiver IC (stock FUN_08139728 write [reg, value], FUN_080df0fc read
+//        [reg] + restart read): 256 registers, reg 0x1B bit 2 = ready. Power up = 0x10 bit 6 clear and 0x76 bit 1 set;
+//        band 0x88 bit 6 (AM); FM channel (0x88 & 0x0F) << 8 | 0x89 in 50 kHz steps; AM frequency
+//        ((0x8C & 0x7F) << 8 | 0x8D) * 100 Hz; volume 0x0F & 0x1F. Monitor: `i2c KtStatus`, `i2c Kt` (registers).
 // Open drain: the line level the MCU reads = MCU level AND slave level; the slave's level is pushed into
 // the GPIO port input (pin 6) on every change.
 using System;
@@ -22,6 +25,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         {
             this.machine = machine;
             Accel[0x0F] = 0x44;
+            Kt[0x1B] = 0x04; Kt[0x10] = 0x40; Kt[0x0E] = 0x20;
             Upright();
             Reset();
         }
@@ -30,6 +34,17 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public bool Trace { get; set; }
         public byte[] Accel { get; } = new byte[256];
         public byte[] Fm { get; } = new byte[64];
+        public byte[] Kt { get; } = new byte[256];
+        public int KtWrites { get; private set; }
+        public string KtStatus()
+        {
+            bool on = (Kt[0x10] & 0x40) == 0 && (Kt[0x76] & 0x02) != 0;
+            bool am = (Kt[0x88] & 0x40) != 0;
+            int ch = ((Kt[0x88] & 0x0F) << 8) | Kt[0x89];
+            int amf = ((Kt[0x8C] & 0x7F) << 8) | Kt[0x8D];
+            return string.Format("power {0}, band {1}, FM {2} Hz, AM IF {3} Hz, volume {4}, writes {5}", on ? "on" : "off",
+                                 am ? "AM" : "FM", ch * 50000L, amf * 100L, Kt[0x0F] & 0x1F, KtWrites);
+        }
         public int Pot { get; private set; } = -1;
         public string PotLog { get; private set; } = "";
         public string LastFmWrite { get; private set; } = "";
@@ -141,7 +156,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             {
                 dev = shift >> 1;
                 bool rd = (shift & 1) != 0;
-                if(dev != 0x2E && dev != 0x19) { state = State.Nack; return; }
+                if(dev != 0x2E && dev != 0x19 && dev != 0x35) { state = State.Nack; return; }
                 if(Trace) { this.Log(LogLevel.Info, "I2C start dev 0x{0:X2} {1}", dev, rd ? "read" : "write"); }
                 state = rd ? State.Read : State.Write;
                 first = true;
@@ -154,6 +169,16 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                 {
                     if(first) { reg = shift & 0x7F; first = false; }
                     else { Accel[reg & 0xFF] = shift; reg++; }
+                }
+                else if(dev == 0x35)
+                {
+                    if(first) { reg = shift; first = false; }
+                    else
+                    {
+                        Kt[reg & 0xFF] = shift; KtWrites++;
+                        if(Trace) { this.Log(LogLevel.Info, "KT write 0x{0:X2} = 0x{1:X2}", reg & 0xFF, shift); }
+                        reg++;
+                    }
                 }
                 else { wbuf.Add(shift); }
                 Ack();
@@ -169,6 +194,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         private byte NextRead()
         {
             if(dev == 0x19) { var v = Accel[reg & 0xFF]; reg++; return v; }
+            if(dev == 0x35) { var v = Kt[reg & 0xFF]; reg++; return v; }
             var f = Fm[fmIdx % Fm.Length]; fmIdx++; return f;
         }
 

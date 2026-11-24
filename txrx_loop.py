@@ -24,7 +24,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.dirname(HERE)
-ELF = os.path.join(SRC, "cfw", "build", "cfw.elf")
+ELF = os.path.join(os.environ.get("CFW_SNAP") or os.path.join(SRC, "cfw"), "build", "cfw.elf")   # CFW_SNAP: ELF snapshot dir
 OUT = os.path.join(HERE, "out")
 # built-in channel offset from the first built-in channel number (cfw app/channels.c, as cfw/tools/emu_modes.sh)
 MODES = {"dmr": 5, "p25": 7, "p25p2": 9, "dstar": 10, "nxdn": 11, "ysf": 12}
@@ -151,7 +151,8 @@ def link(case, a, syms, tone_addr, chT, chR, nameT, nameR, expect_decode=True, e
         for f in ("tx_ptt.adc16", "tx_ptt.json"):
             if os.path.exists(os.path.join(dT, f)):
                 os.remove(os.path.join(dT, f))
-        steps = keys(chT) + list(extra_T) + ["0|sysbus WriteWord 0x%08X %d" % (tone_addr, a.tone), "0.2|shot",
+        mic = ["0|spi2 MicHz %d" % a.tone] if a.mic else []       # SCT3288 microphone stand-in
+        steps = keys(chT) + list(extra_T) + ["0|sysbus WriteWord 0x%08X %d" % (tone_addr, 0 if a.mic else a.tone)] + mic + ["0.2|shot",
                                              "0|pwm AutoCapture false", "0|pwm Capture @%s" % cap,
                                              '0|board Set "A10" false', "%.3f|shot" % min(1.0, a.ptt / 2),
                                              "0|rf0 Transmitting", "0|rf0 Status",
@@ -188,14 +189,18 @@ def link(case, a, syms, tone_addr, chT, chR, nameT, nameR, expect_decode=True, e
     gate = a.rf_gate if rf_gate is None else rf_gate
     # RF gate: the signal is on the TX radio's frequency; the receiver hears it only if tuned there (else noise)
     rf = ["0|rf0 Signal %d -70" % tx_hz, "0|analog StreamGate true"] if (gate and tx_hz) else ["0|rf0 SignalHere -70"]
-    steps = keys(chR) + list(extra_R) + ["0|rf0 Status"] + rf + [text_hook(syms, tlog),
+    spk = os.path.join(dR, "spk.raw")
+    spk_steps = []
+    if a.speaker:                                        # SCT3288 speaker stand-in, no PCM copy to the MCU
+        spk_steps = ["0|sysbus WriteByte 0x%08X 0" % syms["g_sct_tap"][0], "0|spi2 SpeakerFile @%s" % spk]
+    steps = keys(chR) + list(extra_R) + spk_steps + ["0|rf0 Status"] + rf + [text_hook(syms, tlog),
                                          "0|analog Stream @%s %d" % (rx_in, int(round(fs))),
-                                         "%.3f|shot" % (dur / 2), "%.3f|shot" % (dur / 2 + 1.0), "0|analog StreamStatus"]
+                                         "%.3f|shot" % (dur / 2), "%.3f|shot" % (dur / 2 + 1.0), "0|analog StreamStatus", "0|spi2 VoiceStatus"]
     run(nameR, steps)
     thenR = open(os.path.join(dR, "then_out.txt")).read() if os.path.exists(os.path.join(dR, "then_out.txt")) else ""
     m = re.search(r"> rf0 Status\ntuned (\d+) Hz", thenR)
     rx_hz = int(m.group(1)) if m else None
-    pcm_path = os.path.join(dR, "rx_pcm.raw")
+    pcm_path = spk if a.speaker else os.path.join(dR, "rx_pcm.raw")
     pcm = np.fromfile(pcm_path, dtype="<i2") if os.path.exists(pcm_path) else np.zeros(0)
     f_hz, snr, rms = tone_measure(pcm, 8000.0)
     if len(pcm):
@@ -260,6 +265,8 @@ def main():
                     help="talkaround cases on the DMR repeater channel (g_dbg_talkaround 1 on / 2 off), RF gate on: both = "
                          "decode, TX only = decode (sends on the output), RX only = no decode (TX on the input)")
     ap.add_argument("--min-snr", type=float, default=10.0, help="decoded tone must beat this SNR (dB)")
+    ap.add_argument("--mic", action="store_true", help="no test tone: the tone comes from the SCT3288 microphone stand-in (--tone Hz)")
+    ap.add_argument("--speaker", action="store_true", help="measure the SCT3288 speaker stand-in instead of the MCU's PCM ring (g_sct_tap 0)")
     ap.add_argument("--voc", type=int, help="vocoder backend g_voc_select on both radios: 0 auto, 1 sine, 2 imbe, 3 SCT3288")
     ap.add_argument("--elf", help="firmware ELF (default: make cfw, then cfw/build/cfw.elf); copied to out/ first")
     ap.add_argument("--extra-tx", action="append", default=[], help="extra --then step for the TX radio")
@@ -282,6 +289,9 @@ def main():
     for need in ("gfx_text", a.tone_symbol, "g_emu_pcm"):
         if need not in syms:
             raise SystemExit("cfw ELF lacks %s (digital TX / test tone / PCM ring not in this build?)" % need)
+    if "g_backend_emusyms" in syms and (a.filters or a.talkaround or modes != ["fm"]):
+        raise SystemExit("this is an EMU=1 ELF: its digital RX takes symbols from the emulator FIFO, not from the analog "
+                         "stream, so every digital case would fail. Use a normal build (EMU=1 is ok for --mode fm only).")
     if len(syms[a.tone_symbol]) != 1:
         raise SystemExit("symbol %s is not unique: %s" % (a.tone_symbol, syms[a.tone_symbol]))
     tone_addr = syms[a.tone_symbol][0]
