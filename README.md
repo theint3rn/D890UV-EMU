@@ -457,3 +457,9 @@ No firmware, flash images or programming files from the radio maker are included
 flash images (`emu/make_nand.py` -> `images/synth.pages`); running the original radio firmware in the emulator needs
 files made from your own radio package (see the emulator README). Flashing a real radio (CFW repositories): `docs/HARDWARE.md`,
 `docs/CALIBRATION.md` and `docs/PREFLASH_AUDIT.md`.
+
+## License
+
+Copyright (C) 2026 theint3rn. Released under the GNU General Public License v3.0, see `LICENSE`.
+Files that carry their own notice keep it (in the CFW repositories, the IMBE vocoder tables/decoder derived from mbelib are under the ISC
+license, notice in those files).
