@@ -30,8 +30,7 @@ Laid out like the radio: PTT/PF1/PF2 on the left side, PF3 + channel knob + volu
 LCD, keypad, side keys, the strings the firmware draws, Pause/Reset/Save shot, and a box for Renode
 monitor commands (`gps Fix false`, `analog Battery 6.0`, `rtc SetTime "2026-05-01 10:00:00"`, `bt Present false`).
 Hold a button for a long press. PC keys: 0-9 `*` `#`, Enter = Menu, Esc/Backspace = Exit, arrows = Up/Down,
-F1/F2 = P1/P2. Runs in 50 ms slices, paced to real time. In the desktop app: `.claude/launch.json`
-(`d890uv-orig` :8890, `d890uv-lifted` :8891, `d890uv-cfw` :8892). Each launch has its own out dir (`out/ui`,
+F1/F2 = P1/P2. Runs in 50 ms slices, paced to real time. Ports: (`d890uv-orig` :8890, `d890uv-lifted` :8891, `d890uv-cfw` :8892). Each launch has its own out dir (`out/ui`,
 `out/ui_elf`, `out/ui_cfw`), so panels can run side by side. The text pane hooks the firmware's string renderer:
 `--text-fn ADDR|SYMBOL|none`, `--text-abi utf16sp|cstr` (defaults by `--launch`).
 
@@ -345,6 +344,8 @@ python3 emu/run.py --elf cfw/build/cfw.elf --seconds 3 --then "0|knob Turn 1" --
   PF3 (PA8, VFO mode cycle), PF1/PF2 (PE2/PA14: key codes 21/22 reach `ui_key`; no UI action yet), power off/on.
 - Speed: ~0.3–0.4x real time on a loaded host (8 cores busy); stock idles faster thanks to its WFI cave.
 - RF: `rf0 Signal <Hz> <dBm>` → cfw main screen RSSI and RX badge (`rf_rssi`/`rf_carrier`, same regs as stock).
+- `rf0 StrictRx true` (set by `run.py` for cfw runs): the RF model hears a signal only in a stock receive state; `rf0 Status` then shows
+  "rx off", "off (TX)" or "FAULT reg ..." with the register that is wrong. Transmit = reg 0x56 = 2. See `cfw/docs/RF_COMPARE.md`.
 - Symbol injection (MCU-DSP receive stand-in): `make EMU=1` adds the `emu-syms` modem backend
   (`cfw/hal/emu_syms.c`) that reads `syms` at the symbol rate and, while `proto/dmr_nxdn` has no cfw glue yet,
   a receive-only DMR test glue (`cfw/emu_test/dmr_emu.c`). Test stream: `emu/streams/make_streams.sh` builds

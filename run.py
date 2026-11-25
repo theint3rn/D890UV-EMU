@@ -165,6 +165,7 @@ def main():
         if not os.path.exists(rfcal):
             subprocess.check_call([sys.executable, os.path.join(HERE, "make_rfcal.py")], cwd=HERE)
         lines.append("nand LoadPages @%s" % rfcal)
+        lines.append("rf0 StrictRx true")        # the RF model hears only in a stock receive state (RfTransceiver.cs)
     lines += a.extra
     # Boot like hardware: reset vector at 0x0 (flash alias) -> boot stub -> app at 0x0800C000.
     lines.append("sysbus LoadBinary @%s 0x08000000" % (a.bootstub or os.path.join(HERE, "images", "bootstub.bin")))

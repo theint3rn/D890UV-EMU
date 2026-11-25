@@ -46,6 +46,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             this.sdaPort = sdaPort;
             this.sdaPin = sdaPin;
             regs = new ushort[128];
+            sub = new ushort[128 * 16];
             Reset();
         }
 
@@ -80,11 +81,32 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public void SignalOff() { sigOn = false; }
         public void SignalHere(double dbm) { Signal(TunedHz, dbm); }       // on this chip's current frequency
         public long TunedHz => ((long)regs[0x69] << 16) | regs[0x68];
-        public bool RxOn => (regs[0x30] & 0xFF) != 0 && regs[0x30] != 0x5F64;     // 0x5F64 = TX (cfw rf_tx_fm)
-        // TX keyed: stock keys FM TX with reg 0x52 = 0x3041 (bits 14:12 = 011; boot 0x7040, RX 0x0041/0x4041),
-        // cfw rf_tx_fm with reg 0x30 = 0x5F64
-        public bool Transmitting => (regs[0x52] & 0x7000) == 0x3000 || regs[0x30] == 0x5F64;
-        public bool Carrier => sigOn && RxOn && Math.Abs(TunedHz - sigHz) <= Window && sigDbm > FloorDbm;
+        // receiver on: reg 0x56 = 1 (6 = AM down-converter, chip 1) as the stock firmware ends every receive set-up
+        public bool RxOn => (regs[0x30] & 0xFF) != 0 && regs[0x30] != 0x5F64 && (regs[0x56] == 1 || regs[0x56] == 6);
+        // StrictRx (emu/run.py sets it for cfw runs, chip 0): the signal is seen only when the registers match a stock
+        // receive state (V1.05 register traces, cfw/docs/RF_COMPARE.md), else Status says which one does not.
+        public bool StrictRx { get; set; }
+        public string RxFault()
+        {
+            bool u = TunedHz >= 300000000, dig = regs[0x2A] == 0x108C;
+            if(regs[0x56] == 6) { return ""; }
+            if(regs[0x56] != 1) { return "reg 0x56"; }
+            if(regs[0x5F] != (TunedHz < 390000000 ? 0x0468 : 0x0569)) { return "reg 0x5F (band)"; }
+            if(regs[0x60] != 0x0309) { return "reg 0x60"; }
+            if(Sub(0x53, 4) != (u ? 0x463D : 0x467F) || Sub(0x53, 2) != (u ? 0x2637 : 0x263A)) { return "reg 0x53 (band table)"; }
+            bool s0 = (Sub(0x52, 0) & 1) != 0, s4 = (Sub(0x52, 4) & 1) != 0, s6 = (Sub(0x52, 6) & 1) != 0, s7 = (Sub(0x52, 7) & 1) != 0;
+            bool normal = s0 == u && s6 == !u && s7 == !u && s4 == u, am = s0 == u && !s6 && s7 == u && s4 == !u;
+            if(!normal && !am) { return "reg 0x52 (band switches)"; }
+            if(!dig && regs[0x2A] != 0x1081) { return "reg 0x2A"; }
+            if(regs[0x32] != (dig ? 0x0622 : 0x22A2)) { return "reg 0x32 (receive filter set)"; }
+            if(dig ? regs[0x48] != 0x016E : (regs[0x48] != 0x082E && regs[0x48] != 0x9826)) { return "reg 0x48 (bandwidth)"; }
+            return "";
+        }
+        private int Sub(int r, int idx) { return sub[r * 16 + idx]; }
+        // TX keyed: stock FUN_080e3c68 reg 0x56 = 0x0002 (0xE042 variant) as the last step. Reg 0x52 switch 3 is the UHF / VHF
+        // transmit path switch (not written at all on VHF), not the key.
+        public bool Transmitting => (regs[0x56] & 0x000F) == 2 || regs[0x30] == 0x5F64;
+        public bool Carrier => sigOn && RxOn && (!StrictRx || RxFault() == "") && Math.Abs(TunedHz - sigHz) <= Window && sigDbm > FloorDbm;
         public double Dbm => Carrier ? sigDbm : FloorDbm;
         // Opt-in (rf0 SquelchFlag true): reg 0x0E bit 14 = carrier AND RSSI >= the threshold in reg 0x49 [9:0], i.e. the
         // chip's own squelch-detect against the threshold the firmware writes (assumed; default off = any carrier).
@@ -95,7 +117,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public string Status()
         {
             return string.Format("tuned {0} Hz, rx {1}, signal {2}, carrier {3}, {4} dBm, RSSI reg 0x02 = 0x{5:X4}, reg 0x01 = 0x{6:X4}, reg 0x0E = 0x{7:X4}, sq thr reg 0x49 = 0x{8:X4}",
-                TunedHz, RxOn ? "on" : "off", sigOn ? string.Format("{0} Hz {1} dBm", sigHz, sigDbm) : "off",
+                TunedHz, Transmitting ? "off (TX)" : !RxOn ? "off" : StrictRx && RxFault() != "" ? "FAULT " + RxFault() : "on", sigOn ? string.Format("{0} Hz {1} dBm", sigHz, sigDbm) : "off",
                 Carrier, Dbm, ReadReg(0x02), ReadReg(0x01), ReadReg(0x0E), regs[0x49]);
         }
 
@@ -164,6 +186,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             else if(bits == 24)
             {
                 regs[reg] = (ushort)(shift & 0xFFFF);
+                sub[reg * 16 + (regs[reg] >> 12)] = regs[reg];        // registers whose top nibble selects a sub-register
                 Writes++;
                 if(Trace) { this.Log(LogLevel.Info, "RF write reg 0x{0:X2} = 0x{1:X4}", reg, regs[reg]); }
             }
@@ -187,7 +210,7 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         private readonly IMachine machine;
         private readonly string sdaPort;
         private readonly int sdaPin;
-        private readonly ushort[] regs;
+        private readonly ushort[] regs, sub;
         private IGPIOReceiver port;
         private bool cs, sck, sda, reading;
         private int bits, shift, reg;
